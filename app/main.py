@@ -21,5 +21,5 @@ if settings.BACKEND_CORS_ORIGINS:
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
-async def root():
+def root():
     return {"message": "Welcome to CPC Rebranding Backend"}
