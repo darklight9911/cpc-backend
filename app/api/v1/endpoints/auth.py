@@ -1,10 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.db.session import get_db, get_redis
 from app.models.user import User
-from app.schemas.user import UserCreate, OTPVerify
+from app.schemas.user import UserCreate, OTPVerify, Token, UserResponse
 from app.core.config import settings
+from app.core import security
+from app.api import deps
+from datetime import timedelta
 import httpx
 import random
 import uuid
@@ -65,11 +69,12 @@ async def verify_otp(
         )
         
     # 2. Create User
+    hashed_password = security.get_password_hash(otp_in.registration_data.password)
     new_user = User(
         name=otp_in.registration_data.name,
         uni_id=otp_in.registration_data.uni_id,
         email=otp_in.registration_data.email,
-        password_hash=otp_in.registration_data.password # In production, hash this!
+        password_hash=hashed_password
     )
     
     db.add(new_user)
@@ -80,3 +85,30 @@ async def verify_otp(
     await redis.delete(f"otp:{otp_in.email}")
     
     return {"message": "Registration successful!", "user_id": str(new_user.id)}
+
+@router.post("/login", response_model=Token)
+async def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db)
+):
+    # Check user (using email as username)
+    result = await db.execute(select(User).where(User.email == form_data.username))
+    user = result.scalars().first()
+    
+    if not user or not security.verify_password(form_data.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = security.create_access_token(
+        subject=user.email, expires_delta=access_token_expires
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@router.get("/me", response_model=UserResponse)
+async def read_users_me(current_user: User = Depends(deps.get_current_active_user)):
+    return current_user

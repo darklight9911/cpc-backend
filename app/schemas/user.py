@@ -9,7 +9,22 @@ class UserCreate(BaseModel):
     class Config:
         from_attributes = True
 
+class UserResponse(BaseModel):
+    name: str
+    uni_id: str
+    email: EmailStr
+
+    class Config:
+        from_attributes = True
+
 class OTPVerify(BaseModel):
     email: EmailStr
     otp: str
     registration_data: UserCreate
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    username: str | None = None
